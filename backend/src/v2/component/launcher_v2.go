@@ -40,7 +40,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 type LauncherV2Options struct {
@@ -67,12 +66,23 @@ type LauncherV2 struct {
 	cacheClient    *cacheutils.Client
 }
 
-// Client is the struct to hold the Kubernetes Clientset
-type kubernetesClient struct {
-	Clientset kubernetes.Interface
+// LauncherV2Dependencies can be used to inject dependency overrides into LauncherV2
+type LauncherV2Dependencies struct {
+	k8sClientProvider      K8sClientProvider
+	metadataClientProvider MetadataClientProvider
+	cacheClientProvider    CacheClientProvider
 }
 
-func NewLauncherV2(ctx context.Context, executionID int64, executorInputJSON, componentSpecJSON string, cmdArgs []string, opts *LauncherV2Options) (l *LauncherV2, err error) {
+// DefaultLauncherV2Dependencies provides in-cluster dependencies
+func DefaultLauncherV2Dependencies() *LauncherV2Dependencies {
+	return &LauncherV2Dependencies{
+		k8sClientProvider:      defaultK8sClientProvider,
+		metadataClientProvider: defaultMetadataClientProvider,
+		cacheClientProvider:    defaultCacheClientProvider,
+	}
+}
+
+func NewLauncherV2(ctx context.Context, executionID int64, executorInputJSON, componentSpecJSON string, cmdArgs []string, opts *LauncherV2Options, dependencyProvider *LauncherV2Dependencies) (l *LauncherV2, err error) {
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("failed to create component launcher v2: %w", err)
@@ -98,15 +108,11 @@ func NewLauncherV2(ctx context.Context, executionID int64, executorInputJSON, co
 	if err != nil {
 		return nil, err
 	}
-	restConfig, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize kubernetes client: %w", err)
-	}
-	k8sClient, err := kubernetes.NewForConfig(restConfig)
+	k8sClient, err := dependencyProvider.k8sClientProvider()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize kubernetes client set: %w", err)
 	}
-	metadataClient, err := metadata.NewClient(opts.MLMDServerAddress, opts.MLMDServerPort)
+	metadataClient, err := dependencyProvider.metadataClientProvider(opts.MLMDServerAddress, opts.MLMDServerPort)
 	if err != nil {
 		return nil, err
 	}

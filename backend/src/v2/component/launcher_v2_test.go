@@ -15,6 +15,8 @@ package component
 
 import (
 	"context"
+	"github.com/kubeflow/pipelines/backend/src/v2/cacheutils"
+	"k8s.io/client-go/kubernetes"
 	"testing"
 
 	"github.com/kubeflow/pipelines/api/v2alpha1/go/pipelinespec"
@@ -40,6 +42,70 @@ var addNumbersComponent = &pipelinespec.ComponentSpec{
 			"Output": {ParameterType: pipelinespec.ParameterType_NUMBER_INTEGER},
 		},
 	},
+}
+
+// Tests happy and unhappy paths for constructing a new LauncherV2
+func Test_NewLauncherV2(t *testing.T) {
+	cmdArgs := []string{"sh", "-c", "echo \"hello world\""}
+	opts := &LauncherV2Options{
+		Namespace:         "my-namespace",
+		PodName:           "my-pod",
+		PodUID:            "abcd",
+		MLMDServerAddress: "example.com",
+		MLMDServerPort:    "1234",
+	}
+	deps := LauncherV2Dependencies{
+		k8sClientProvider: func() (kubernetes.Interface, error) {
+			return &fake.Clientset{}, nil
+		},
+		metadataClientProvider: func(address string, port string) (*metadata.Client, error) {
+			return &metadata.Client{}, nil
+		},
+		cacheClientProvider: func() (*cacheutils.Client, error) {
+			return &cacheutils.Client{}, nil
+		},
+	}
+	type args struct {
+		ctx               context.Context
+		executionID       int64
+		executorInputJSON string
+		componentSpecJSON string
+	}
+	tests := []struct {
+		name    string
+		args    *args
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			args: &args{
+				ctx:               context.TODO(),
+				executionID:       1,
+				executorInputJSON: "{}",
+				componentSpecJSON: "{}",
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing executionID",
+			args: &args{
+				ctx:               context.TODO(),
+				executionID:       0,
+				executorInputJSON: "{}",
+				componentSpecJSON: "{}",
+			},
+			wantErr: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := test.args
+			_, err := NewLauncherV2(args.ctx, args.executionID, args.executorInputJSON, args.componentSpecJSON, cmdArgs, opts, &deps)
+			if (err != nil) != test.wantErr {
+				t.Errorf("NewLauncherV2() error = %v, wantErr %v", err, test.wantErr)
+			}
+		})
+	}
 }
 
 // Tests that launcher correctly executes the user component and successfully writes output parameters to file.
